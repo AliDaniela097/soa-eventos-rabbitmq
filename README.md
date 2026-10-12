@@ -21,6 +21,11 @@ Frontend MVC (NestJS) --SOAP--> Servicio SOA + mini-ESB --evento--> RabbitMQ -->
 | `consumidor-eventos` | Consume la cola `productos.consultados` | n/a |
 | `frontend-mvc` | NestJS + Handlebars. Consume el servicio por SOAP y muestra los productos | 3001 |
 
+## Contratos
+
+- `soa-productos-service/productos.wsdl`: contrato formal del servicio SOAP (operación `ObtenerProductos`).
+- `contrato.yaml`: el mismo servicio documentado en OpenAPI 3.0.3, más el esquema del evento `ProductoConsultado` y los datos de la cola de RabbitMQ (`x-mensajeria`). Si hay diferencias, manda el WSDL.
+
 ## Requisitos
 
 - Node.js 18 o superior

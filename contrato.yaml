@@ -1,0 +1,241 @@
+# Define la versión del estándar OpenAPI que estamos utilizando.
+openapi: 3.0.3
+
+# Sección de metadatos de la API
+info:
+  # El nombre que aparecerá en la documentación
+  title: SOA Productos + Eventos RabbitMQ
+  # Qué hace el sistema. OpenAPI no describe SOAP ni AMQP de forma nativa,
+  # por eso este documento los representa como HTTP (SOAP) y como un esquema de evento (RabbitMQ).
+  description: |
+    Reto 1 de Integración de Sistemas (Semana 5). Sistema de cuatro piezas conectadas en un solo flujo:
+    Frontend MVC (NestJS) -> servicio SOAP -> mini-ESB (EventoPublisher) -> RabbitMQ -> consumidor.
+
+    **Contrato formal del servicio SOAP:** el archivo `soa-productos-service/productos.wsdl`.
+    Este YAML documenta ese mismo servicio en formato OpenAPI para facilitar su lectura.
+    Si hay diferencias, el WSDL manda.
+
+    El servicio no implementa autenticación: es un laboratorio que corre solo en localhost.
+  # La versión actual del contrato
+  version: 1.0.0
+  # Información de contacto del responsable
+  contact:
+    name: Alisson Basantes
+    email: danibasantes24@outlook.es
+
+# Servidores donde corre cada pieza (solo entorno local)
+servers:
+- url: http://localhost:3000
+  description: Servicio SOA (SOAP). Entorno local de desarrollo
+
+# Categorías visuales para organizar la documentación
+tags:
+- name: Servicio SOAP
+  description: Operaciones del servicio SOA (puerto 3000)
+- name: Frontend MVC
+  description: Página NestJS que consume el servicio por SOAP (puerto 3001)
+
+# Metadatos de la mensajería. OpenAPI no tiene un campo estándar para colas,
+# así que se documenta con una extensión (x-). Todos los valores salen del código.
+x-mensajeria:
+  broker: RabbitMQ 3 (imagen rabbitmq:3-management)
+  conexion: amqp://localhost (puerto 5672). Consola web en el puerto 15672
+  exchange: Exchange por defecto (direct, sin nombre). Enruta por el nombre de la cola
+  cola:
+    nombre: productos.consultados
+    durable: false
+    declaradaPor: productor y consumidor, con los mismos parámetros
+  productor: soa-productos-service (evento-publisher.js, mini-ESB)
+  consumidor: consumidor-eventos (index.js)
+  mensaje: '#/components/schemas/EventoProductoConsultado'
+  cuandoSePublica: Cada vez que se invoca la operación ObtenerProductos
+  confirmacion: El consumidor confirma con ack manual después de procesar cada mensaje
+  garantiaEntrega: at-least-once (un mensaje puede llegar repetido si el consumidor cae antes del ack)
+  siElConsumidorEstaApagado: Los mensajes quedan en la cola (Ready) y se procesan cuando vuelve a arrancar
+
+# Aquí definimos las rutas (URLs) de la API
+paths:
+
+  # Endpoint SOAP. Todas las operaciones del WSDL llegan por esta misma URL con POST
+  /wsdl:
+    # Método HTTP POST: invoca la operación SOAP
+    post:
+      tags:
+      - Servicio SOAP
+      summary: ObtenerProductos (operación SOAP)
+      description: |
+        Devuelve la lista de productos. No recibe parámetros.
+        Antes de responder, el servicio publica el evento `ProductoConsultado` en RabbitMQ
+        (ver `x-mensajeria`). Si RabbitMQ no está disponible, el error se registra en consola
+        y el servicio responde igual con los productos.
+      operationId: ObtenerProductos
+      # Sin seguridad: el servicio no pide token
+      security: []
+      parameters:
+      # Encabezado que usa SOAP 1.1 para indicar la operación (definido en el WSDL)
+      - name: SOAPAction
+        in: header
+        required: false
+        schema:
+          type: string
+          example: '"ObtenerProductos"'
+      # Cuerpo de la petición: un sobre (Envelope) SOAP en XML
+      requestBody:
+        required: true
+        content:
+          text/xml:
+            schema:
+              type: string
+              description: Sobre SOAP 1.1 con el elemento ObtenerProductosRequest (vacío) dentro del Body.
+            example: |
+              <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+                             xmlns:tns="http://integracion-sistemas.local/productos">
+                <soap:Body>
+                  <tns:ObtenerProductosRequest/>
+                </soap:Body>
+              </soap:Envelope>
+      responses:
+        # Respuesta correcta
+        '200':
+          description: Lista de productos
+          content:
+            text/xml:
+              schema:
+                type: string
+                description: |
+                  Sobre SOAP con ObtenerProductosResponse. Cada elemento `productos` es un texto con el formato
+                  `id|nombre|precio` (el WSDL define `productos` como lista de xsd:string).
+              example: |
+                <?xml version="1.0" encoding="utf-8"?>
+                <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+                               xmlns:tns="http://integracion-sistemas.local/productos">
+                  <soap:Body>
+                    <tns:ObtenerProductosResponse>
+                      <productos>1|Teclado mecánico|45.9</productos>
+                      <productos>2|Mouse inalámbrico|19.5</productos>
+                      <productos>3|Monitor 24"|129.99</productos>
+                    </tns:ObtenerProductosResponse>
+                  </soap:Body>
+                </soap:Envelope>
+        # Error del servidor, por ejemplo XML inválido
+        '500':
+          description: SOAP Fault (por ejemplo, el cuerpo no es un XML válido)
+          content:
+            text/xml:
+              schema:
+                type: string
+              example: |
+                <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+                  <soap:Body>
+                    <soap:Fault>
+                      <faultcode>500</faultcode>
+                      <faultstring>Invalid XML</faultstring>
+                      <detail>Error: Unexpected end</detail>
+                    </soap:Fault>
+                  </soap:Body>
+                </soap:Envelope>
+
+    # Método GET: devuelve el contrato WSDL
+    get:
+      tags:
+      - Servicio SOAP
+      summary: Obtener el contrato WSDL
+      description: Se invoca con el parámetro `?wsdl` y devuelve el contrato `productos.wsdl`.
+      operationId: ObtenerWsdl
+      security: []
+      parameters:
+      # El parámetro va sin valor: /wsdl?wsdl
+      - name: wsdl
+        in: query
+        required: true
+        allowEmptyValue: true
+        schema:
+          type: string
+        description: Parámetro sin valor. La URL completa es /wsdl?wsdl
+      responses:
+        '200':
+          description: Documento WSDL (XML)
+          content:
+            application/xml:
+              schema:
+                type: string
+                description: Contenido de productos.wsdl
+
+  # Endpoint del frontend. Vive en otro servidor (puerto 3001), por eso se redefine "servers"
+  /:
+    get:
+      tags:
+      - Frontend MVC
+      summary: Página con la lista de productos
+      description: |
+        Renderiza `views/index.hbs` con Handlebars. Por detrás llama por SOAP a ObtenerProductos,
+        convierte cada línea `id|nombre|precio` en un objeto y muestra la lista.
+        Cada visita genera un evento nuevo en RabbitMQ.
+      operationId: PaginaProductos
+      security: []
+      # Servidor propio de este endpoint
+      servers:
+      - url: http://localhost:3001
+        description: Frontend MVC (NestJS). Entorno local de desarrollo
+      responses:
+        '200':
+          description: Página HTML con la lista de productos
+          content:
+            text/html:
+              schema:
+                type: string
+
+# Componentes reutilizables
+components:
+
+  schemas:
+
+    # Producto tal como lo muestra el frontend después de separar el texto id|nombre|precio
+    Producto:
+      type: object
+      properties:
+        id:
+          type: string
+          example: '1'
+        nombre:
+          type: string
+          example: Teclado mecánico
+        precio:
+          type: string
+          example: '45.9'
+
+    # Evento que viaja por RabbitMQ (cola productos.consultados). Se serializa como JSON
+    EventoProductoConsultado:
+      type: object
+      description: |
+        Evento de dominio publicado por EventoPublisher. El nombre está en pasado porque describe
+        algo que ya ocurrió. No lleva el catálogo completo, solo lo necesario.
+      required:
+      - eventoId
+      - tipo
+      - fecha
+      - origen
+      - totalProductosDevueltos
+      properties:
+        eventoId:
+          type: string
+          format: uuid
+          description: Identificador único del evento. Sirve para que el consumidor sea idempotente.
+          example: 80a2ea37-9983-4ecd-a6a9-228affcbd64a
+        tipo:
+          type: string
+          enum:
+          - ProductoConsultado
+        fecha:
+          type: string
+          format: date-time
+          description: Momento de publicación, en formato ISO 8601 (UTC).
+          example: '2026-10-11T06:06:02.949Z'
+        origen:
+          type: string
+          enum:
+          - soa-productos-service
+        totalProductosDevueltos:
+          type: integer
+          description: Cantidad de productos que devolvió la operación ObtenerProductos.
+          example: 3
