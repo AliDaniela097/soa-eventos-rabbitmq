@@ -67,6 +67,20 @@ Frontend MVC (NestJS) --SOAP--> Servicio SOA + mini-ESB --evento--> RabbitMQ -->
 
 Cada vez que se recarga el frontend, el consumidor imprime un nuevo evento. Si el consumidor está apagado, los eventos esperan en la cola y se procesan cuando vuelve a arrancar.
 
+## Variables de entorno (despliegue en la nube)
+
+Todas son opcionales. Sin ellas, el sistema corre en local como se describe arriba.
+
+| Proyecto | Variable | Para qué sirve | Valor por defecto |
+|---|---|---|---|
+| `soa-productos-service` | `PORT` | Puerto del servicio (la plataforma lo asigna) | `3000` |
+| `soa-productos-service` | `PUBLIC_URL` | URL pública del servicio, se escribe dentro del WSDL | `http://localhost:PORT` |
+| `soa-productos-service` | `RABBITMQ_URL` | Dirección de RabbitMQ | `amqp://localhost` |
+| `consumidor-eventos` | `RABBITMQ_URL` | Dirección de RabbitMQ | `amqp://localhost` |
+| `consumidor-eventos` | `PORT` | Si existe, abre un mini servidor que responde `{"estado":"ok"}` (las plataformas gratis solo aceptan servicios web) | desactivado |
+| `frontend-mvc` | `PORT` | Puerto del frontend | `3001` |
+| `frontend-mvc` | `SOA_URL` | URL pública del servicio SOA | `http://localhost:3000` |
+
 ## Tecnologías
 
 Node.js, Express, soap, amqplib, RabbitMQ, NestJS, Handlebars.

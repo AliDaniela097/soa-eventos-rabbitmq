@@ -2,9 +2,11 @@ const crypto = require("crypto");
 const amqp = require("amqplib");
 
 const QUEUE = "productos.consultados";
+// En la nube la dirección de RabbitMQ viene de la variable RABBITMQ_URL. En tu PC se usa la local.
+const RABBITMQ_URL = process.env.RABBITMQ_URL || "amqp://localhost";
 
 async function publicarProductoConsultado(cantidadProductos) {
-  const connection = await amqp.connect("amqp://localhost");
+  const connection = await amqp.connect(RABBITMQ_URL);
   const channel = await connection.createChannel();
   await channel.assertQueue(QUEUE, { durable: false });
 

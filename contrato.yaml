@@ -27,6 +27,7 @@ info:
 servers:
 - url: http://localhost:3000
   description: Servicio SOA (SOAP). Entorno local de desarrollo
+# Al desplegar en la nube, agrega aquí la URL pública del servicio SOA.
 
 # Categorías visuales para organizar la documentación
 tags:
@@ -160,6 +161,26 @@ paths:
               schema:
                 type: string
                 description: Contenido de productos.wsdl
+
+  # Ruta simple para comprobar que el servicio está despierto (útil en la nube, donde los planes gratis se duermen)
+  /health:
+    get:
+      tags:
+      - Servicio SOAP
+      summary: Comprobar que el servicio está activo
+      operationId: Health
+      security: []
+      responses:
+        '200':
+          description: El servicio responde
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  estado:
+                    type: string
+                    example: ok
 
   # Endpoint del frontend. Vive en otro servidor (puerto 3001), por eso se redefine "servers"
   /:
