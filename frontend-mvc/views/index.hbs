@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Productos (vía SOA)</title>
+</head>
+<body>
+  <h1>Productos consultados vía servicio SOA</h1>
+  <ul>
+    {{#each productos}}
+      <li>{{this.nombre}} — ${{this.precio}}</li>
+    {{/each}}
+  </ul>
+</body>
+</html>
