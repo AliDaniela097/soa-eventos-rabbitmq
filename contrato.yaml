@@ -15,7 +15,10 @@ info:
     Este YAML documenta ese mismo servicio en formato OpenAPI para facilitar su lectura.
     Si hay diferencias, el WSDL manda.
 
-    El servicio no implementa autenticación: es un laboratorio que corre solo en localhost.
+    El servicio no implementa autenticación: es un laboratorio. Corre en localhost y también está publicado
+    en la nube con planes gratuitos (Render para los servicios, CloudAMQP para RabbitMQ). Ver `x-despliegue`.
+    Como defensa mínima, `POST /wsdl` rechaza cuerpos de más de 16 KB (413) y más de 120 peticiones por minuto
+    desde una misma IP (429).
   # La versión actual del contrato
   version: 1.0.0
   # Información de contacto del responsable
@@ -23,11 +26,12 @@ info:
     name: Alisson Basantes
     email: danibasantes24@outlook.es
 
-# Servidores donde corre cada pieza (solo entorno local)
+# Servidores donde corre el servicio SOA
 servers:
+- url: https://soa-productos-service-cirp.onrender.com
+  description: Servicio SOA (SOAP). Nube (Render, plan gratis). Se duerme tras 15 minutos sin tráfico y puede tardar cerca de 1 minuto en despertar
 - url: http://localhost:3000
   description: Servicio SOA (SOAP). Entorno local de desarrollo
-# Al desplegar en la nube, agrega aquí la URL pública del servicio SOA.
 
 # Categorías visuales para organizar la documentación
 tags:
@@ -39,20 +43,38 @@ tags:
 # Metadatos de la mensajería. OpenAPI no tiene un campo estándar para colas,
 # así que se documenta con una extensión (x-). Todos los valores salen del código.
 x-mensajeria:
-  broker: RabbitMQ 3 (imagen rabbitmq:3-management)
-  conexion: amqp://localhost (puerto 5672). Consola web en el puerto 15672
+  broker: 'RabbitMQ. Local: imagen rabbitmq:3-management. Nube: CloudAMQP, plan Little Lemur (gratis), RabbitMQ 4.3.5'
+  conexion: 'Local: amqp://localhost (puerto 5672, consola web en el 15672). Nube: URL amqps (TLS) en la variable de entorno RABBITMQ_URL. No se publica porque lleva contraseña'
   exchange: Exchange por defecto (direct, sin nombre). Enruta por el nombre de la cola
   cola:
-    nombre: productos.consultados
-    durable: false
+    nombre: productos.consultados.v2
+    durable: true
+    mensajesPersistentes: true
     declaradaPor: productor y consumidor, con los mismos parámetros
+    notaDelNombre: 'El sufijo .v2 existe porque RabbitMQ no permite cambiar una cola ya creada de no durable a durable ni agregarle una DLQ. La cola antigua productos.consultados ya no se usa'
+  colaDeRechazados:
+    exchange: productos.dlx (direct, durable)
+    nombre: productos.consultados.v2.dlq
+    durable: true
+    recibe: 'Mensajes inválidos (no son JSON o no cumplen el esquema) y eventos que fallaron al procesarse dos veces'
   productor: soa-productos-service (evento-publisher.js, mini-ESB)
   consumidor: consumidor-eventos (index.js)
   mensaje: '#/components/schemas/EventoProductoConsultado'
   cuandoSePublica: Cada vez que se invoca la operación ObtenerProductos
-  confirmacion: El consumidor confirma con ack manual después de procesar cada mensaje
-  garantiaEntrega: at-least-once (un mensaje puede llegar repetido si el consumidor cae antes del ack)
+  confirmacion: 'Productor: canal con confirmaciones (publisher confirms) y tiempo máximo de espera. Consumidor: ack manual después de procesar cada mensaje, prefetch 10'
+  reintentos: 'Si el procesamiento falla, se reintenta una vez (nack con reencolado). Si vuelve a fallar o el mensaje es inválido, va a la DLQ'
+  garantiaEntrega: 'at-least-once (un mensaje puede llegar repetido si el consumidor cae antes del ack). El consumidor descarta repetidos por eventoId (recuerda los últimos 1000, en memoria)'
   siElConsumidorEstaApagado: Los mensajes quedan en la cola (Ready) y se procesan cuando vuelve a arrancar
+
+# Dónde está publicado cada servicio (nube gratuita)
+x-despliegue:
+  plataforma: Render (servicios web, plan gratis) y CloudAMQP (RabbitMQ, plan Little Lemur gratis)
+  servicios:
+    soaProductos: https://soa-productos-service-cirp.onrender.com
+    frontend: https://soa-frontend-mvc.onrender.com
+    consumidor: https://soa-consumidor-eventos.onrender.com
+  consumidorEstado: 'GET a la URL del consumidor devuelve JSON con estado, cola, eventosRecibidos, eventosDuplicados y eventosRechazados (contadores en memoria, vuelven a 0 al reiniciar)'
+  limitaciones: 'Los servicios gratis de Render se duermen tras 15 minutos sin tráfico. No hay garantía de disponibilidad. Ver AUDITORIA_BACKEND.md'
 
 # Aquí definimos las rutas (URLs) de la API
 paths:
@@ -118,6 +140,12 @@ paths:
                     </tns:ObtenerProductosResponse>
                   </soap:Body>
                 </soap:Envelope>
+        # Cuerpo demasiado grande (más de 16 KB)
+        '413':
+          description: El cuerpo de la petición supera el límite permitido
+        # Demasiadas peticiones desde la misma IP
+        '429':
+          description: Más de 120 peticiones por minuto desde la misma IP. Reintentar después (cabecera Retry-After)
         # Error del servidor, por ejemplo XML inválido
         '500':
           description: SOAP Fault (por ejemplo, el cuerpo no es un XML válido)
@@ -196,6 +224,8 @@ paths:
       security: []
       # Servidor propio de este endpoint
       servers:
+      - url: https://soa-frontend-mvc.onrender.com
+        description: Frontend MVC (NestJS). Nube (Render, plan gratis)
       - url: http://localhost:3001
         description: Frontend MVC (NestJS). Entorno local de desarrollo
       responses:
